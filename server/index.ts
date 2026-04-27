@@ -1,0 +1,380 @@
+import express from "express";
+import { createServer } from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { Server, type Socket } from "socket.io";
+import {
+  PLAYER_COLORS,
+  PLAYER_ICONS,
+  cellKey,
+  createGameState,
+  findWinningLine,
+  hasEnoughPlayers,
+  nextPlayablePlayer,
+  normalizeSlug,
+  playablePlayers,
+  roomStatus,
+  uniqueDisplayName,
+  updateTurnStatuses
+} from "../shared/game.js";
+import type {
+  BoardCell,
+  ClientToServerEvents,
+  InterServerEvents,
+  Player,
+  Room,
+  RoomSummary,
+  ServerToClientEvents,
+  SocketAck,
+  SocketData
+} from "../shared/types.js";
+
+const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || "0.0.0.0";
+const rooms = new Map<string, Room>();
+type AppServerSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
+
+const app = express();
+const httpServer = createServer(app);
+const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
+  cors: {
+    origin: process.env.CORS_ORIGIN || undefined
+  }
+});
+
+function now() {
+  return Date.now();
+}
+
+function publicRooms(): RoomSummary[] {
+  return [...rooms.values()]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((room) => ({
+      slug: room.slug,
+      name: room.name,
+      maxPlayers: room.maxPlayers,
+      playerCount: room.players.filter((player) => player.status !== "left").length,
+      status: roomStatus(room)
+    }));
+}
+
+function broadcastRooms() {
+  io.emit("rooms:update", publicRooms());
+}
+
+function emitRoom(room: Room) {
+  room.updatedAt = now();
+  updateTurnStatuses(room.players, room.game.currentPlayerId);
+  io.to(room.slug).emit("room:state", room);
+  broadcastRooms();
+}
+
+function uniqueSlug(roomName: string) {
+  const base = normalizeSlug(roomName);
+  if (!rooms.has(base)) return base;
+
+  let suffix = 2;
+  while (rooms.has(`${base}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${base}-${suffix}`;
+}
+
+function createPlayer(payload: { playerId: string; playerName: string }, room: Room, socketId: string, isHost = false): Player {
+  const index = room.players.length;
+  const displayName = uniqueDisplayName(payload.playerName, room.players, payload.playerId);
+
+  return {
+    id: payload.playerId,
+    socketId,
+    name: payload.playerName.trim() || displayName,
+    displayName,
+    icon: PLAYER_ICONS[index % PLAYER_ICONS.length],
+    color: PLAYER_COLORS[index % PLAYER_COLORS.length],
+    status: "playing",
+    isHost,
+    joinedAt: now(),
+    connected: true,
+    moves: 0
+  };
+}
+
+function connectedPlayers(room: Room) {
+  return room.players.filter((player) => player.connected && player.status !== "left");
+}
+
+function reassignHost(room: Room) {
+  const host = room.players.find((player) => player.id === room.hostId && player.status !== "left");
+  if (host) {
+    room.players.forEach((player) => {
+      player.isHost = player.id === host.id;
+    });
+    return;
+  }
+
+  const nextHost = connectedPlayers(room).sort((a, b) => a.joinedAt - b.joinedAt)[0];
+  if (!nextHost) return;
+
+  room.hostId = nextHost.id;
+  room.players.forEach((player) => {
+    player.isHost = player.id === nextHost.id;
+  });
+}
+
+function ensureTurn(room: Room) {
+  const current = room.players.find((player) => player.id === room.game.currentPlayerId);
+  if (current?.connected && current.status !== "winner" && current.status !== "left") {
+    updateTurnStatuses(room.players, room.game.currentPlayerId);
+    return;
+  }
+
+  room.game.currentPlayerId = nextPlayablePlayer(room.players, room.game.currentPlayerId)?.id;
+  updateTurnStatuses(room.players, room.game.currentPlayerId);
+}
+
+function startGame(room: Room) {
+  if (!hasEnoughPlayers(room)) {
+    return "Cần ít nhất 2 bạn nhỏ để bắt đầu ván.";
+  }
+
+  room.game.status = "playing";
+  room.game.startedAt = room.game.startedAt || now();
+  room.game.endedAt = undefined;
+  room.game.currentPlayerId = nextPlayablePlayer(room.players)?.id;
+  ensureTurn(room);
+  return undefined;
+}
+
+function endGame(room: Room) {
+  room.game.status = "ended";
+  room.game.endedAt = now();
+  room.game.currentPlayerId = undefined;
+  updateTurnStatuses(room.players, undefined);
+}
+
+function maybeFinishGame(room: Room) {
+  if (room.game.status !== "playing") return;
+  if (playablePlayers(room.players).length < 2) {
+    endGame(room);
+  }
+}
+
+function makeAck<T>(data: T): SocketAck<T> {
+  return { ok: true, data };
+}
+
+function makeError<T>(error: string): SocketAck<T> {
+  return { ok: false, error };
+}
+
+function leaveCurrentRoom(socketId: string, explicit = false) {
+  const room = [...rooms.values()].find((candidate) => candidate.players.some((player) => player.socketId === socketId));
+  if (!room) return;
+
+  const player = room.players.find((candidate) => candidate.socketId === socketId);
+  if (!player) return;
+
+  player.connected = false;
+  player.socketId = undefined;
+  player.status = explicit ? "left" : "disconnected";
+
+  if (explicit) {
+    reassignHost(room);
+  }
+
+  ensureTurn(room);
+  maybeFinishGame(room);
+
+  io.to(room.slug).emit("player:left", room, player);
+  emitRoom(room);
+
+  if (room.players.every((candidate) => candidate.status === "left")) {
+    rooms.delete(room.slug);
+    broadcastRooms();
+  }
+}
+
+function joinSocketRoom(socket: AppServerSocket, room: Room, player: Player) {
+  socket.join(room.slug);
+  socket.data.roomSlug = room.slug;
+  socket.data.playerId = player.id;
+  player.socketId = socket.id;
+  player.connected = true;
+  if (player.status === "disconnected") player.status = "playing";
+  ensureTurn(room);
+}
+
+io.on("connection", (socket) => {
+  socket.emit("rooms:update", publicRooms());
+
+  socket.on("rooms:list", () => {
+    socket.emit("rooms:update", publicRooms());
+  });
+
+  socket.on("room:create", (payload, callback) => {
+    const roomName = payload.roomName.trim() || `Phong vui ${Math.floor(Math.random() * 900 + 100)}`;
+    const slug = uniqueSlug(roomName);
+    const room: Room = {
+      slug,
+      name: roomName,
+      hostId: payload.playerId,
+      maxPlayers: Math.min(Math.max(Number(payload.maxPlayers) || 4, 2), 8),
+      players: [],
+      game: createGameState(),
+      createdAt: now(),
+      updatedAt: now()
+    };
+    const player = createPlayer(payload, room, socket.id, true);
+    room.players.push(player);
+    rooms.set(slug, room);
+    joinSocketRoom(socket, room, player);
+    emitRoom(room);
+    callback?.(makeAck({ room, player }));
+  });
+
+  socket.on("room:join", (payload, callback) => {
+    const room = rooms.get(payload.roomSlug);
+    if (!room) {
+      const message = "Phong nay khong con ton tai. Hay tao phong moi nhe!";
+      socket.emit("room:error", message);
+      callback?.(makeError(message));
+      return;
+    }
+
+    const existing = room.players.find((player) => player.id === payload.playerId && player.status !== "left");
+    if (existing) {
+      joinSocketRoom(socket, room, existing);
+      io.to(room.slug).emit("player:reconnected", room, existing);
+      emitRoom(room);
+      callback?.(makeAck({ room, player: existing }));
+      return;
+    }
+
+    const visiblePlayers = room.players.filter((player) => player.status !== "left");
+    if (visiblePlayers.length >= room.maxPlayers) {
+      const message = "Phong da day roi. Minh chon phong khac nhe!";
+      socket.emit("room:error", message);
+      callback?.(makeError(message));
+      return;
+    }
+
+    const player = createPlayer(payload, room, socket.id);
+    room.players.push(player);
+    joinSocketRoom(socket, room, player);
+    io.to(room.slug).emit("player:joined", room, player);
+    emitRoom(room);
+    callback?.(makeAck({ room, player }));
+  });
+
+  socket.on("room:leave", () => {
+    leaveCurrentRoom(socket.id, true);
+    socket.leave(socket.data.roomSlug || "");
+    socket.data.roomSlug = undefined;
+    socket.data.playerId = undefined;
+  });
+
+  socket.on("game:start", () => {
+    const room = socket.data.roomSlug ? rooms.get(socket.data.roomSlug) : undefined;
+    const player = room?.players.find((candidate) => candidate.id === socket.data.playerId);
+    if (!room || !player?.isHost) return;
+
+    const error = startGame(room);
+    if (error) {
+      socket.emit("room:error", error);
+      return;
+    }
+    emitRoom(room);
+  });
+
+  socket.on("game:new-round", () => {
+    const room = socket.data.roomSlug ? rooms.get(socket.data.roomSlug) : undefined;
+    const player = room?.players.find((candidate) => candidate.id === socket.data.playerId);
+    if (!room || !player?.isHost) return;
+
+    room.players = room.players.filter((candidate) => candidate.status !== "left");
+    room.players.forEach((candidate) => {
+      candidate.rank = undefined;
+      candidate.moves = 0;
+      candidate.connected = true;
+      candidate.status = "playing";
+    });
+    room.game = createGameState(room.game.round + 1);
+    startGame(room);
+    emitRoom(room);
+  });
+
+  socket.on("game:end", () => {
+    const room = socket.data.roomSlug ? rooms.get(socket.data.roomSlug) : undefined;
+    const player = room?.players.find((candidate) => candidate.id === socket.data.playerId);
+    if (!room || !player?.isHost) return;
+
+    endGame(room);
+    io.to(room.slug).emit("game:ended", room);
+    emitRoom(room);
+  });
+
+  socket.on("game:move", ({ x, y }) => {
+    const room = socket.data.roomSlug ? rooms.get(socket.data.roomSlug) : undefined;
+    if (!room) return;
+
+    const player = room.players.find((candidate) => candidate.id === socket.data.playerId);
+    if (!player || room.game.status !== "playing") return;
+    if (room.game.currentPlayerId !== player.id || player.status === "winner" || player.status === "left") return;
+
+    const key = cellKey(x, y);
+    if (room.game.board[key]) {
+      socket.emit("room:error", "O nay da co ban khac dat roi.");
+      return;
+    }
+
+    const move: BoardCell = {
+      key,
+      x,
+      y,
+      playerId: player.id,
+      playerName: player.displayName,
+      icon: player.icon,
+      color: player.color,
+      placedAt: now()
+    };
+
+    room.game.board[key] = move;
+    room.game.moves.push(move);
+    player.moves += 1;
+
+    const line = findWinningLine(room.game.board, x, y, player.id);
+    if (line) {
+      player.status = "winner";
+      player.rank = room.game.winners.length + 1;
+      room.game.winners.push(player.id);
+      room.game.winningLines[player.id] = line;
+      io.to(room.slug).emit("game:winner", room, player, line);
+    }
+
+    room.game.currentPlayerId = nextPlayablePlayer(room.players, player.id)?.id;
+    ensureTurn(room);
+    maybeFinishGame(room);
+
+    if (room.game.endedAt) {
+      io.to(room.slug).emit("game:ended", room);
+    } else {
+      io.to(room.slug).emit("game:move-applied", room, move);
+    }
+    emitRoom(room);
+  });
+
+  socket.on("disconnect", () => {
+    leaveCurrentRoom(socket.id, false);
+  });
+});
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const clientDist = path.resolve(__dirname, "../../client/dist");
+app.use(express.static(clientDist));
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(clientDist, "index.html"));
+});
+
+httpServer.listen(PORT, HOST, () => {
+  console.log(`Caro multiplayer is running on http://${HOST}:${PORT}`);
+});
