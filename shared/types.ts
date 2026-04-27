@@ -83,6 +83,10 @@ export interface ClientToServerEvents {
     payload: { roomSlug: string; playerName: string; playerId: string },
     callback?: (response: SocketAck<{ room: Room; player: Player }>) => void
   ) => void;
+  "player:rename": (
+    payload: { playerName: string },
+    callback?: (response: SocketAck<{ room: Room; player: Player }>) => void
+  ) => void;
   "room:leave": () => void;
   "game:start": () => void;
   "game:move": (payload: { x: number; y: number }) => void;

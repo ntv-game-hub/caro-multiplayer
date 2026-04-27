@@ -134,6 +134,9 @@ function ensureTurn(room: Room) {
 
 function startGame(room: Room) {
   if (!hasEnoughPlayers(room)) {
+    room.game.status = "waiting";
+    room.game.currentPlayerId = undefined;
+    updateTurnStatuses(room.players, undefined);
     return "Cần ít nhất 2 bạn nhỏ để bắt đầu ván.";
   }
 
@@ -212,7 +215,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("room:create", (payload, callback) => {
-    const roomName = payload.roomName.trim() || `Phong vui ${Math.floor(Math.random() * 900 + 100)}`;
+    const roomName = payload.roomName.trim() || `Phòng vui ${Math.floor(Math.random() * 900 + 100)}`;
     const slug = uniqueSlug(roomName);
     const room: Room = {
       slug,
@@ -228,6 +231,7 @@ io.on("connection", (socket) => {
     room.players.push(player);
     rooms.set(slug, room);
     joinSocketRoom(socket, room, player);
+    startGame(room);
     emitRoom(room);
     callback?.(makeAck({ room, player }));
   });
@@ -235,7 +239,7 @@ io.on("connection", (socket) => {
   socket.on("room:join", (payload, callback) => {
     const room = rooms.get(payload.roomSlug);
     if (!room) {
-      const message = "Phong nay khong con ton tai. Hay tao phong moi nhe!";
+      const message = "Phòng này không còn tồn tại. Hãy tạo phòng mới nhé!";
       socket.emit("room:error", message);
       callback?.(makeError(message));
       return;
@@ -250,17 +254,12 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const visiblePlayers = room.players.filter((player) => player.status !== "left");
-    if (visiblePlayers.length >= room.maxPlayers) {
-      const message = "Phong da day roi. Minh chon phong khac nhe!";
-      socket.emit("room:error", message);
-      callback?.(makeError(message));
-      return;
-    }
-
     const player = createPlayer(payload, room, socket.id);
     room.players.push(player);
     joinSocketRoom(socket, room, player);
+    if (room.game.status === "waiting") {
+      startGame(room);
+    }
     io.to(room.slug).emit("player:joined", room, player);
     emitRoom(room);
     callback?.(makeAck({ room, player }));
@@ -271,6 +270,31 @@ io.on("connection", (socket) => {
     socket.leave(socket.data.roomSlug || "");
     socket.data.roomSlug = undefined;
     socket.data.playerId = undefined;
+  });
+
+  socket.on("player:rename", (payload, callback) => {
+    const room = socket.data.roomSlug ? rooms.get(socket.data.roomSlug) : undefined;
+    const player = room?.players.find((candidate) => candidate.id === socket.data.playerId && candidate.status !== "left");
+    if (!room || !player) {
+      const message = "Không tìm thấy bạn trong phòng này.";
+      socket.emit("room:error", message);
+      callback?.(makeError(message));
+      return;
+    }
+
+    const displayName = uniqueDisplayName(payload.playerName, room.players, player.id);
+    player.name = payload.playerName.trim() || displayName;
+    player.displayName = displayName;
+
+    room.game.moves.forEach((move) => {
+      if (move.playerId === player.id) move.playerName = displayName;
+    });
+    Object.values(room.game.board).forEach((cell) => {
+      if (cell.playerId === player.id) cell.playerName = displayName;
+    });
+
+    emitRoom(room);
+    callback?.(makeAck({ room, player }));
   });
 
   socket.on("game:start", () => {
@@ -323,7 +347,7 @@ io.on("connection", (socket) => {
 
     const key = cellKey(x, y);
     if (room.game.board[key]) {
-      socket.emit("room:error", "O nay da co ban khac dat roi.");
+      socket.emit("room:error", "Ô này đã có bạn khác đặt rồi.");
       return;
     }
 

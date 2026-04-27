@@ -4,10 +4,12 @@ import {
   createGameState,
   findWinningLine,
   nextPlayablePlayer,
+  hasEnoughPlayers,
+  roomStatus,
   uniqueDisplayName,
   updateTurnStatuses
 } from "../shared/game.js";
-import type { BoardCell, Player } from "../shared/types.js";
+import type { BoardCell, Player, Room } from "../shared/types.js";
 
 function makeCell(x: number, y: number, playerId = "p1"): BoardCell {
   return {
@@ -76,5 +78,41 @@ describe("caro game logic", () => {
     players[1].displayName = "An 2";
 
     expect(uniqueDisplayName("An", players)).toBe("An 3");
+  });
+
+  it("requires at least two playable players before a room can start", () => {
+    const solo = player("p1");
+    const duo = player("p2");
+    const room: Room = {
+      slug: "solo",
+      name: "Solo",
+      hostId: solo.id,
+      maxPlayers: 4,
+      players: [solo],
+      game: createGameState(),
+      createdAt: 1,
+      updatedAt: 1
+    };
+
+    expect(hasEnoughPlayers(room)).toBe(false);
+    expect(nextPlayablePlayer(room.players)?.id).toBe("p1");
+
+    room.players.push(duo);
+    expect(hasEnoughPlayers(room)).toBe(true);
+  });
+
+  it("keeps a room joinable even after the target player count is reached", () => {
+    const room: Room = {
+      slug: "busy",
+      name: "Busy",
+      hostId: "p1",
+      maxPlayers: 2,
+      players: [player("p1"), player("p2"), player("p3")],
+      game: { ...createGameState(), status: "playing" },
+      createdAt: 1,
+      updatedAt: 1
+    };
+
+    expect(roomStatus(room)).toBe("playing");
   });
 });

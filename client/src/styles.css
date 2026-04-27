@@ -159,8 +159,6 @@ h3 {
 .primary-button,
 .ghost-button,
 .room-card button,
-.bottom-actions button,
-.pan-pad button,
 .icon-button {
   display: inline-flex;
   min-height: 42px;
@@ -179,8 +177,7 @@ h3 {
   box-shadow: 0 12px 28px rgba(194, 100, 255, 0.25);
 }
 
-.ghost-button,
-.bottom-actions button {
+.ghost-button {
   background: rgba(255, 250, 255, 0.76);
   color: var(--muted);
 }
@@ -262,12 +259,14 @@ h3 {
 .game-shell {
   display: grid;
   height: 100dvh;
-  gap: 8px;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 5px;
   overflow: hidden;
+  padding: max(7px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
 }
 
 .game-header {
-  min-height: 50px;
+  min-height: 42px;
 }
 
 .room-heading {
@@ -299,10 +298,13 @@ h3 {
 
 .player-rail {
   display: flex;
-  gap: 7px;
-  min-height: 48px;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  max-height: 30px;
   overflow-x: auto;
-  padding-bottom: 2px;
+  overflow-y: hidden;
+  padding-bottom: 1px;
   scrollbar-width: none;
 }
 
@@ -314,15 +316,16 @@ h3 {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  max-width: 170px;
-  min-height: 42px;
+  gap: 4px;
+  max-width: 112px;
+  height: 28px;
+  min-height: 28px;
   border: 2px solid transparent;
   border-radius: var(--radius);
-  padding: 4px 8px 4px 5px;
+  padding: 1px 6px 1px 3px;
   background: rgba(255, 250, 255, 0.76);
   color: var(--ink);
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   font-weight: 900;
 }
 
@@ -350,12 +353,13 @@ h3 {
   align-items: center;
   gap: 2px;
   color: var(--green);
+  font-size: 0.68rem;
 }
 
 .avatar {
   display: inline-flex;
-  width: 31px;
-  height: 31px;
+  width: 21px;
+  height: 21px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -363,15 +367,30 @@ h3 {
   border-radius: 99px;
 }
 
+.avatar svg {
+  width: 13px;
+  height: 13px;
+}
+
 .turn-banner {
-  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: start;
+  min-height: 24px;
+  height: 24px;
+  max-height: 24px;
+  overflow: hidden;
   border-radius: var(--radius);
-  padding: 8px 10px;
+  padding: 3px 8px;
   background: rgba(255, 250, 255, 0.72);
   color: var(--muted);
   text-align: center;
-  font-size: 0.9rem;
+  font-size: 0.74rem;
   font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .turn-banner strong {
@@ -381,41 +400,51 @@ h3 {
 .board-wrap {
   display: grid;
   min-height: 0;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
 }
 
-.board-wrap.my-turn .board {
+.board-wrap.my-turn .board-viewport {
   box-shadow: 0 0 0 4px rgba(255, 215, 109, 0.55), var(--shadow);
 }
 
-.board {
-  --cell: min(10.6vw, 44px);
-  display: grid;
-  width: fit-content;
+.board-viewport {
+  display: block;
+  width: min(100%, 760px);
+  height: 100%;
   max-width: 100%;
   max-height: 100%;
-  grid-template-columns: repeat(15, var(--cell));
-  grid-auto-rows: var(--cell);
   justify-self: center;
   align-self: stretch;
   overflow: hidden;
   border: 3px solid rgba(255, 250, 255, 0.92);
   border-radius: var(--radius);
-  background:
-    linear-gradient(90deg, rgba(121, 95, 143, 0.14) 1px, transparent 1px),
-    linear-gradient(rgba(121, 95, 143, 0.14) 1px, transparent 1px),
-    var(--white);
-  background-size: var(--cell) var(--cell);
+  background: var(--white);
   box-shadow: var(--shadow);
+  cursor: grab;
   touch-action: none;
   user-select: none;
 }
 
+.board-viewport:active {
+  cursor: grabbing;
+}
+
+.board {
+  display: grid;
+  grid-auto-rows: 1fr;
+  background:
+    linear-gradient(90deg, rgba(121, 95, 143, 0.14) 1px, transparent 1px),
+    linear-gradient(rgba(121, 95, 143, 0.14) 1px, transparent 1px),
+    var(--white);
+  will-change: transform;
+}
+
 .board-cell {
   display: grid;
-  width: var(--cell);
-  height: var(--cell);
+  min-width: 0;
+  min-height: 0;
   place-items: center;
   border: 1px solid rgba(121, 95, 143, 0.12);
   background: transparent;
@@ -438,33 +467,6 @@ h3 {
 
 .pop-in svg {
   animation: popIn 0.28s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-}
-
-.pan-pad {
-  display: grid;
-  width: min(100%, 330px);
-  grid-template-columns: repeat(5, 1fr);
-  gap: 7px;
-  justify-self: center;
-}
-
-.pan-pad button {
-  min-height: 36px;
-  background: rgba(255, 250, 255, 0.76);
-  color: var(--violet-1);
-}
-
-.bottom-actions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 7px;
-}
-
-.bottom-actions button {
-  min-width: 0;
-  min-height: 44px;
-  padding: 0 7px;
-  font-size: 0.78rem;
 }
 
 .sheet-backdrop {
@@ -491,6 +493,28 @@ h3 {
 .history-list {
   display: grid;
   gap: 10px;
+}
+
+.rename-form {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-actions button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  border-radius: var(--radius);
+  padding: 0 12px;
+  background: var(--violet-6);
+  color: var(--ink);
+  font-weight: 900;
 }
 
 .history-list article {
@@ -587,7 +611,7 @@ h3 {
   }
 }
 
-@media (min-width: 720px) {
+@media (min-width: 960px) {
   .home-screen {
     grid-template-columns: 0.9fr 1.1fr;
     align-items: start;
@@ -600,9 +624,57 @@ h3 {
 
   .game-shell {
     height: min(100dvh, 920px);
+    gap: 8px;
+    padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
   }
 
-  .board {
-    --cell: 43px;
+  .player-rail {
+    align-items: stretch;
+    gap: 7px;
+    min-height: 48px;
+    max-height: none;
+    padding-bottom: 2px;
+  }
+
+  .player-pill {
+    gap: 6px;
+    max-width: 170px;
+    height: auto;
+    min-height: 42px;
+    padding: 4px 8px 4px 5px;
+    font-size: 0.82rem;
+  }
+
+  .player-pill small {
+    font-size: 0.75rem;
+  }
+
+  .avatar {
+    width: 31px;
+    height: 31px;
+  }
+
+  .avatar svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .turn-banner {
+    display: block;
+    height: auto;
+    max-height: none;
+    min-height: 34px;
+    padding: 8px 10px;
+    font-size: 0.9rem;
+    line-height: normal;
+    white-space: normal;
+  }
+
+  .board-wrap {
+    width: 100%;
+  }
+
+  .board-viewport {
+    width: 100%;
   }
 }

@@ -29,7 +29,6 @@ export function createGameState(round = 1): GameState {
 
 export function roomStatus(room: Room): RoomStatus {
   if (room.game.status === "ended") return "ended";
-  if (activePlayers(room.players).length >= room.maxPlayers) return "full";
   return room.game.status;
 }
 
@@ -112,7 +111,7 @@ export function normalizeSlug(input: string) {
 }
 
 export function uniqueDisplayName(name: string, existingPlayers: Player[], playerId?: string) {
-  const cleanName = name.trim().replace(/\s+/g, " ") || "Ban nho";
+  const cleanName = name.trim().replace(/\s+/g, " ") || "Bạn nhỏ";
   const existingNames = new Set(
     existingPlayers
       .filter((player) => player.id !== playerId && player.status !== "left")
