@@ -510,6 +510,27 @@ function GameBoard({ room, canPlay, onMove }: { room: Room; canPlay: boolean; on
     return { shiftX, shiftY, normalized };
   }
 
+  function moveFromPointer(event: React.PointerEvent<HTMLDivElement>) {
+    if (!canPlay) return;
+
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const rect = viewport.getBoundingClientRect();
+    const boardLeft = offset.x - buffer * cellSize;
+    const boardTop = offset.y - buffer * cellSize;
+    const column = Math.floor((event.clientX - rect.left - boardLeft) / cellSize);
+    const row = Math.floor((event.clientY - rect.top - boardTop) / cellSize);
+
+    if (column < 0 || column >= renderColumns || row < 0 || row >= renderRows) return;
+
+    const x = center.x - halfColumns - buffer + column;
+    const y = center.y - halfRows - buffer + row;
+    if (room.game.board[cellKey(x, y)]) return;
+
+    onMove(x, y);
+  }
+
   return (
     <section className={`board-wrap ${canPlay ? "my-turn" : ""}`}>
       <div
@@ -551,7 +572,10 @@ function GameBoard({ room, canPlay, onMove }: { room: Room; canPlay: boolean; on
           if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId);
           }
-          if (!drag?.moved) return;
+          if (!drag?.moved) {
+            moveFromPointer(event);
+            return;
+          }
           window.setTimeout(() => {
             draggedRef.current = false;
           }, 80);
@@ -583,10 +607,7 @@ function GameBoard({ room, canPlay, onMove }: { room: Room; canPlay: boolean; on
                 type="button"
                 aria-label={`Ô ${x}, ${y}`}
                 disabled={!canPlay || Boolean(cell)}
-                onClick={() => {
-                  if (draggedRef.current) return;
-                  onMove(x, y);
-                }}
+                tabIndex={-1}
               >
                 {cell && <PlayerIcon player={cell} size={22} />}
               </button>
