@@ -37,6 +37,9 @@ type AppServerSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterS
 const app = express();
 const httpServer = createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
+  pingInterval: 25000,
+  pingTimeout: 60000,
+  transports: ["websocket"],
   cors: {
     origin: process.env.CORS_ORIGIN || undefined
   }
@@ -62,11 +65,11 @@ function broadcastRooms() {
   io.emit("rooms:update", publicRooms());
 }
 
-function emitRoom(room: Room) {
+function emitRoom(room: Room, updateRoomList = true) {
   room.updatedAt = now();
   updateTurnStatuses(room.players, room.game.currentPlayerId);
   io.to(room.slug).emit("room:state", room);
-  broadcastRooms();
+  if (updateRoomList) broadcastRooms();
 }
 
 function uniqueSlug(roomName: string) {
@@ -182,6 +185,7 @@ function leaveCurrentRoom(socketId: string, explicit = false) {
   player.status = explicit ? "left" : "disconnected";
 
   if (explicit) {
+    room.players = room.players.filter((candidate) => candidate.id !== player.id);
     reassignHost(room);
   }
 
@@ -191,7 +195,7 @@ function leaveCurrentRoom(socketId: string, explicit = false) {
   io.to(room.slug).emit("player:left", room, player);
   emitRoom(room);
 
-  if (room.players.every((candidate) => candidate.status === "left")) {
+  if (room.players.length === 0 || room.players.every((candidate) => candidate.status === "left")) {
     rooms.delete(room.slug);
     broadcastRooms();
   }
@@ -372,7 +376,6 @@ io.on("connection", (socket) => {
       player.rank = room.game.winners.length + 1;
       room.game.winners.push(player.id);
       room.game.winningLines[player.id] = line;
-      io.to(room.slug).emit("game:winner", room, player, line);
     }
 
     room.game.currentPlayerId = nextPlayablePlayer(room.players, player.id)?.id;
@@ -381,10 +384,14 @@ io.on("connection", (socket) => {
 
     if (room.game.endedAt) {
       io.to(room.slug).emit("game:ended", room);
+      broadcastRooms();
+    } else if (line) {
+      io.to(room.slug).emit("game:winner", room, player, line);
+      broadcastRooms();
     } else {
       io.to(room.slug).emit("game:move-applied", room, move);
+      emitRoom(room, false);
     }
-    emitRoom(room);
   });
 
   socket.on("disconnect", () => {

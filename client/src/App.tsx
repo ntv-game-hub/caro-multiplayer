@@ -100,10 +100,20 @@ export function App() {
   const joinedSlug = useRef<string>();
 
   useEffect(() => {
-    const nextSocket: AppSocket = io();
+    const nextSocket: AppSocket = io({
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelayMax: 5000,
+      timeout: 20000
+    });
     setSocket(nextSocket);
+    setConnected(nextSocket.connected);
 
-    nextSocket.on("connect", () => setConnected(true));
+    nextSocket.on("connect", () => {
+      joinedSlug.current = undefined;
+      setConnected(true);
+    });
     nextSocket.on("disconnect", () => setConnected(false));
     nextSocket.on("rooms:update", setRooms);
     nextSocket.on("room:state", (nextRoom) => setRoom(nextRoom));
@@ -148,7 +158,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!socket || !slug || !playerName.trim() || joinedSlug.current === slug) return;
+    if (!socket || !connected || !slug || !playerName.trim() || joinedSlug.current === slug) return;
     joinedSlug.current = slug;
     localStorage.setItem(PLAYER_NAME_KEY, playerName.trim());
     socket.emit("room:join", { roomSlug: slug, playerName: playerName.trim(), playerId }, (response) => {
@@ -159,7 +169,7 @@ export function App() {
         joinedSlug.current = undefined;
       }
     });
-  }, [playerId, playerName, slug, socket]);
+  }, [connected, playerId, playerName, slug, socket]);
 
   const me = useMemo(() => room?.players.find((player) => player.id === playerId), [playerId, room]);
   const currentPlayer = useMemo(() => room?.players.find((player) => player.id === room.game.currentPlayerId), [room]);
