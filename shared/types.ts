@@ -89,7 +89,7 @@ export interface ClientToServerEvents {
   ) => void;
   "room:leave": () => void;
   "game:start": () => void;
-  "game:move": (payload: { x: number; y: number }) => void;
+  "game:move": (payload: { x: number; y: number }, callback?: (response: SocketAck<{ room: Room; move: Move }>) => void) => void;
   "game:new-round": () => void;
   "game:end": () => void;
 }

@@ -460,6 +460,11 @@ h3 {
   background: rgba(244, 227, 255, 0.64);
 }
 
+.board-cell.pending-cell {
+  background: var(--green-soft);
+  opacity: 0.68;
+}
+
 .board-cell.winner-cell {
   background: var(--yellow-soft);
   animation: winnerGlow 0.9s ease-in-out infinite alternate;

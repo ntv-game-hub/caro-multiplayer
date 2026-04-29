@@ -341,17 +341,27 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("game:move", ({ x, y }) => {
+  socket.on("game:move", ({ x, y }, callback) => {
     const room = socket.data.roomSlug ? rooms.get(socket.data.roomSlug) : undefined;
-    if (!room) return;
+    if (!room) {
+      callback?.(makeError("Không tìm thấy phòng chơi."));
+      return;
+    }
 
     const player = room.players.find((candidate) => candidate.id === socket.data.playerId);
-    if (!player || room.game.status !== "playing") return;
-    if (room.game.currentPlayerId !== player.id || player.status === "winner" || player.status === "left") return;
+    if (!player || room.game.status !== "playing") {
+      callback?.(makeError("Ván chơi chưa sẵn sàng."));
+      return;
+    }
+    if (room.game.currentPlayerId !== player.id || player.status === "winner" || player.status === "left") {
+      callback?.(makeError("Chưa đến lượt của bạn."));
+      return;
+    }
 
     const key = cellKey(x, y);
     if (room.game.board[key]) {
       socket.emit("room:error", "Ô này đã có bạn khác đặt rồi.");
+      callback?.(makeError("Ô này đã có bạn khác đặt rồi."));
       return;
     }
 
@@ -392,6 +402,7 @@ io.on("connection", (socket) => {
       io.to(room.slug).emit("game:move-applied", room, move);
       emitRoom(room, false);
     }
+    callback?.(makeAck({ room, move }));
   });
 
   socket.on("disconnect", () => {

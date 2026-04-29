@@ -25,6 +25,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { cellKey } from "../../shared/game";
 import type {
+  BoardCell,
   ClientToServerEvents,
   HistoryEntry,
   Player,
@@ -375,7 +376,27 @@ export function App() {
             {room.game.status === "ended" && "Ván chơi đã kết thúc"}
           </section>
 
-          <GameBoard room={room} canPlay={canPlay} onMove={(x, y) => socket?.emit("game:move", { x, y })} />
+          <GameBoard
+            room={room}
+            me={me}
+            canPlay={canPlay}
+            onMove={(x, y) =>
+              new Promise((resolve, reject) => {
+                if (!socket) {
+                  reject(new Error("Mất kết nối."));
+                  return;
+                }
+                socket.emit("game:move", { x, y }, (response) => {
+                  if (response.ok) {
+                    resolve();
+                    return;
+                  }
+                  setMessage(response.error);
+                  reject(new Error(response.error));
+                });
+              })
+            }
+          />
         </>
       ) : (
         <section className="loading-room">
@@ -446,8 +467,19 @@ function PlayerRail({ players, currentPlayerId }: { players: Player[]; currentPl
   );
 }
 
-function GameBoard({ room, canPlay, onMove }: { room: Room; canPlay: boolean; onMove: (x: number, y: number) => void }) {
+function GameBoard({
+  room,
+  me,
+  canPlay,
+  onMove
+}: {
+  room: Room;
+  me?: Player;
+  canPlay: boolean;
+  onMove: (x: number, y: number) => Promise<void>;
+}) {
   const cells = Object.values(room.game.board);
+  const [pendingCells, setPendingCells] = useState<Record<string, BoardCell>>({});
   const [center, setCenter] = useState({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [viewportMetrics, setViewportMetrics] = useState({ cellSize: 32, visibleColumns: 15, visibleRows: 15 });
@@ -464,6 +496,19 @@ function GameBoard({ room, canPlay, onMove }: { room: Room; canPlay: boolean; on
   const halfColumns = Math.floor(visibleColumns / 2);
   const halfRows = Math.floor(visibleRows / 2);
   const winningKeys = new Set(Object.values(room.game.winningLines).flat());
+  const hasPendingCell = Object.keys(pendingCells).length > 0;
+  const canPlaceMove = canPlay && !hasPendingCell;
+
+  useEffect(() => {
+    setPendingCells({});
+  }, [room.game.round]);
+
+  useEffect(() => {
+    setPendingCells((current) => {
+      const entries = Object.entries(current).filter(([key]) => !room.game.board[key]);
+      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
+    });
+  }, [room.game.board, room.game.moves.length]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -528,7 +573,7 @@ function GameBoard({ room, canPlay, onMove }: { room: Room; canPlay: boolean; on
   }
 
   function moveFromPointer(event: React.PointerEvent<HTMLDivElement>) {
-    if (!canPlay) return;
+    if (!canPlaceMove || !me) return;
 
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -543,13 +588,30 @@ function GameBoard({ room, canPlay, onMove }: { room: Room; canPlay: boolean; on
 
     const x = center.x - halfColumns - buffer + column;
     const y = center.y - halfRows - buffer + row;
-    if (room.game.board[cellKey(x, y)]) return;
+    const key = cellKey(x, y);
+    if (room.game.board[key] || pendingCells[key]) return;
 
-    onMove(x, y);
+    const pendingCell: BoardCell = {
+      key,
+      x,
+      y,
+      playerId: me.id,
+      playerName: me.displayName,
+      icon: me.icon,
+      color: me.color,
+      placedAt: Date.now()
+    };
+    setPendingCells((current) => ({ ...current, [key]: pendingCell }));
+    onMove(x, y).catch(() => {
+      setPendingCells((current) => {
+        const { [key]: _removed, ...next } = current;
+        return next;
+      });
+    });
   }
 
   return (
-    <section className={`board-wrap ${canPlay ? "my-turn" : ""}`}>
+    <section className={`board-wrap ${canPlaceMove ? "my-turn" : ""}`}>
       <div
         ref={viewportRef}
         className="board-viewport"
@@ -616,14 +678,15 @@ function GameBoard({ room, canPlay, onMove }: { room: Room; canPlay: boolean; on
           }}
         >
           {coordinates.map(({ x, y, key }) => {
-            const cell = room.game.board[key];
+            const pendingCell = pendingCells[key];
+            const cell = room.game.board[key] || pendingCell;
             return (
               <button
-                className={`board-cell ${cell ? "filled pop-in" : ""} ${winningKeys.has(key) ? "winner-cell" : ""}`}
+                className={`board-cell ${cell ? "filled pop-in" : ""} ${pendingCell ? "pending-cell" : ""} ${winningKeys.has(key) ? "winner-cell" : ""}`}
                 key={key}
                 type="button"
                 aria-label={`Ô ${x}, ${y}`}
-                disabled={!canPlay || Boolean(cell)}
+                disabled={!canPlaceMove || Boolean(cell)}
                 tabIndex={-1}
               >
                 {cell && <PlayerIcon player={cell} size={22} />}
