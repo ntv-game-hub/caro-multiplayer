@@ -460,6 +460,10 @@ h3 {
   background: rgba(244, 227, 255, 0.64);
 }
 
+.board-cell.latest-move-cell {
+  box-shadow: inset 0 0 0 2px rgba(48, 168, 108, 0.58);
+}
+
 .board-cell.pending-cell {
   background: var(--green-soft);
   opacity: 0.68;

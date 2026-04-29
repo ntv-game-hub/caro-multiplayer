@@ -496,6 +496,11 @@ function GameBoard({
   const halfColumns = Math.floor(visibleColumns / 2);
   const halfRows = Math.floor(visibleRows / 2);
   const winningKeys = new Set(Object.values(room.game.winningLines).flat());
+  const latestMoveByPlayer = new Map<string, string>();
+  for (const move of room.game.moves) {
+    latestMoveByPlayer.set(move.playerId, cellKey(move.x, move.y));
+  }
+  const latestMoveKeys = new Set(latestMoveByPlayer.values());
   const hasPendingCell = Object.keys(pendingCells).length > 0;
   const canPlaceMove = canPlay && !hasPendingCell;
 
@@ -682,7 +687,7 @@ function GameBoard({
             const cell = room.game.board[key] || pendingCell;
             return (
               <button
-                className={`board-cell ${cell ? "filled pop-in" : ""} ${pendingCell ? "pending-cell" : ""} ${winningKeys.has(key) ? "winner-cell" : ""}`}
+                className={`board-cell ${cell ? "filled pop-in" : ""} ${latestMoveKeys.has(key) ? "latest-move-cell" : ""} ${pendingCell ? "pending-cell" : ""} ${winningKeys.has(key) ? "winner-cell" : ""}`}
                 key={key}
                 type="button"
                 aria-label={`Ô ${x}, ${y}`}
