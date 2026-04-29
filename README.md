@@ -28,13 +28,27 @@ The app runs as a single Node.js service: Express serves the built React fronten
 ```text
 client/                 React/Vite frontend
   src/
-server/                 Express + Socket.IO server
-shared/                 Shared TypeScript types and game logic
-tests/                  Vitest unit tests
+    App.tsx             Socket/session orchestration
+    components/         Reusable board, player, and sheet components
+    screens/            Home, join gate, and game screens
+    lib/                Browser storage helpers
+    utils/              Navigation and history helpers
+server/                 Express + Socket.IO backend
+  index.ts              Thin server bootstrap
+  socketHandlers.ts     Realtime event handlers
+  lib/                  Room store, lifecycle, and ack helpers
+shared/                 Shared TypeScript types and pure game logic
+tests/                  Vitest unit tests for shared rules
+docs/                   Architecture and realtime event documentation
 scripts/                Utility scripts, including realtime stress tests
 ecosystem.config.cjs    PM2 app configuration
 requirements.md         Product requirements
 ```
+
+More detail:
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Realtime Events](docs/EVENTS.md)
 
 ## Install
 
