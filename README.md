@@ -31,6 +31,7 @@ client/                 React/Vite frontend
 server/                 Express + Socket.IO server
 shared/                 Shared TypeScript types and game logic
 tests/                  Vitest unit tests
+scripts/                Utility scripts, including realtime stress tests
 ecosystem.config.cjs    PM2 app configuration
 requirements.md         Product requirements
 ```
@@ -228,6 +229,44 @@ Run a full build:
 ```bash
 npm run build
 ```
+
+Run the realtime stress test against a running server:
+
+```bash
+npm run stress
+```
+
+By default this connects to `http://127.0.0.1:3000`, creates 8 Socket.IO clients, plays 120 moves, simulates one disconnect/rejoin, and verifies that `room:leave` removes the player from the room.
+
+To run it locally from a clean build:
+
+```bash
+npm run build
+npm start
+```
+
+Then, in another terminal:
+
+```bash
+npm run stress
+```
+
+To test a deployed Render app:
+
+```bash
+SERVER_URL=https://your-app.onrender.com npm run stress
+```
+
+Optional tuning:
+
+```bash
+CLIENTS=12 MOVES=300 SYNC_TIMEOUT_MS=5000 npm run stress
+```
+
+- `SERVER_URL`: target app URL. Default: `http://127.0.0.1:3000`.
+- `CLIENTS`: number of simulated players. Default: `8`.
+- `MOVES`: number of moves to submit. Default: `120`.
+- `SYNC_TIMEOUT_MS`: max wait for all connected clients to receive each state update. Default: `2500`.
 
 ## Notes
 

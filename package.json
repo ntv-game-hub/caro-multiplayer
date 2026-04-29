@@ -12,6 +12,7 @@
     "build:server": "rm -rf dist/server dist/shared && tsc -p server/tsconfig.json",
     "start": "node dist/server/index.js",
     "test": "vitest run",
+    "stress": "node scripts/stress-test.mjs",
     "pm2:start": "npm run build && pm2 start ecosystem.config.cjs --update-env",
     "pm2:restart": "npm run build && pm2 restart ecosystem.config.cjs --update-env",
     "pm2:stop": "pm2 stop caro-multiplayer",

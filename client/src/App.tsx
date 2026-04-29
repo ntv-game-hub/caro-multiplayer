@@ -88,6 +88,7 @@ export function App() {
   const [room, setRoom] = useState<Room>();
   const [slug, setSlug] = useState(routeSlug());
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(PLAYER_NAME_KEY) || "");
+  const [joinRequested, setJoinRequested] = useState(() => Boolean(routeSlug() && localStorage.getItem(PLAYER_NAME_KEY)?.trim()));
   const [playerId] = useState(() => ensurePlayerId());
   const [roomName, setRoomName] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(4);
@@ -149,7 +150,9 @@ export function App() {
 
   useEffect(() => {
     const onPopState = () => {
-      setSlug(routeSlug());
+      const nextSlug = routeSlug();
+      setSlug(nextSlug);
+      setJoinRequested(Boolean(nextSlug && localStorage.getItem(PLAYER_NAME_KEY)?.trim()));
       joinedSlug.current = undefined;
       setRoom(undefined);
     };
@@ -158,7 +161,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!socket || !connected || !slug || !playerName.trim() || joinedSlug.current === slug) return;
+    if (!socket || !connected || !slug || !joinRequested || !playerName.trim() || joinedSlug.current === slug) return;
     joinedSlug.current = slug;
     localStorage.setItem(PLAYER_NAME_KEY, playerName.trim());
     socket.emit("room:join", { roomSlug: slug, playerName: playerName.trim(), playerId }, (response) => {
@@ -166,10 +169,11 @@ export function App() {
         setRoom(response.data.room);
       } else {
         setMessage(response.error);
+        setJoinRequested(false);
         joinedSlug.current = undefined;
       }
     });
-  }, [connected, playerId, playerName, slug, socket]);
+  }, [connected, joinRequested, playerId, playerName, slug, socket]);
 
   const me = useMemo(() => room?.players.find((player) => player.id === playerId), [playerId, room]);
   const currentPlayer = useMemo(() => room?.players.find((player) => player.id === room.game.currentPlayerId), [room]);
@@ -197,6 +201,7 @@ export function App() {
         }
         setRoom(response.data.room);
         joinedSlug.current = response.data.room.slug;
+        setJoinRequested(true);
         navigate(`/room/${response.data.room.slug}`);
       }
     );
@@ -204,12 +209,14 @@ export function App() {
 
   function joinRoom(roomSlug: string) {
     savePlayerName();
+    setJoinRequested(true);
     navigate(`/room/${roomSlug}`);
   }
 
   function leaveRoom() {
     socket?.emit("room:leave");
     joinedSlug.current = undefined;
+    setJoinRequested(false);
     setRoom(undefined);
     navigate("/");
   }
@@ -316,7 +323,7 @@ export function App() {
     );
   }
 
-  if (!playerName.trim()) {
+  if (!playerName.trim() || (!room && !joinRequested)) {
     return (
       <main className="app-shell join-screen">
         <button className="ghost-button" type="button" onClick={() => navigate("/")}>
